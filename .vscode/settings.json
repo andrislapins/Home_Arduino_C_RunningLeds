@@ -1,0 +1,10 @@
+{
+    "AVR.reporter.arguments": [
+        "-C"
+    ],
+    "AVR.source.compiler": "/usr/bin/avr-gcc",
+    "files.associations": {
+        "io.h": "c",
+        "delay.h": "c"
+    }
+}
