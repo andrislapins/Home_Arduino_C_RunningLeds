@@ -8,12 +8,12 @@
 #include <avr/interrupt.h>
 #include <util/delay.h>
 
-#define FOSC 16000000 // Clock Speed
+#define FOSC 16000000
 #define BAUD 9600
 #define MYUBRR FOSC/16/BAUD-1
 
-volatile int direction  = 0;
-volatile uint16_t speed = 200;
+volatile static int direction          = 0;
+volatile static uint16_t speed         = 200;
 
 ISR (INT0_vect) {
     direction = !direction;
@@ -82,6 +82,7 @@ void running_leds_left(void) {
 
     // Turn off all the D pins.
     PORTD = 0;
+
 }
 
 void interrupt_init(void) {
@@ -96,44 +97,57 @@ void interrupt_init(void) {
 }
 
 void usart_init(unsigned int ubrr) {
-    // Disable global interrupts.
-    cli();
-
     // Set baud rate.
     UBRR0H = (unsigned char) (ubrr>>8);
     UBRR0L = (unsigned char) (ubrr);
 
     // Enable receiver and transmitter.
-    UCSR0B = (1 << RXEN0) | (1 << TXEN0);
+    UCSR0B |= (1 << RXEN0) | (1 << TXEN0);
 
-    // Set frame format: 8 data, 2 stop bits.
+    // Set frame format: 8 data, 2 stop bits. 
     UCSR0C = (1 << USBS0) | (3 << UCSZ00);
 }
 
-void usart_transmit(unsigned char data) {
+void usart_transmit_byte(unsigned char data) {
     // Wait for empty transmit buffer.
-    while ( !(UCSR0A & (1 << UDRE0)) )
-        ;
+    while ( !(UCSR0A & (1 << UDRE0)) );
 
     // Put data into buffer, sends the data.
     UDR0 = data;
 }
 
-void usart_transmit_string(unsigned char string[8]) {
-    for (int i = 0; i < 8 && string[i] != '\0'; i++) {
-        usart_transmit(string[i]);
+void usart_transmit_string(unsigned char *string) {
+    for (int i = 0; string[i] != '\0'; i++) {
+        usart_transmit_byte(string[i]);
     }
-
-    usart_transmit('\n');
 }
 
-unsigned char usart_receive(void) {
-    // Wait for data to be received.
-    while ( !(UCSR0A & (1 << RXC0)) )
-        ;
+volatile static unsigned char rx_buffer[128];
+volatile static uint8_t pos = 0;
 
-    // Get and return received data from buffer.
-    return UDR0;
+uint8_t usart_receive(void) {
+    // Wait for data to be received.
+    if ( (UCSR0A & (1 << RXC0)) ) {
+        // Get and return received data from buffer.
+        unsigned char c;
+        uint8_t len = 0;
+
+        do {
+            c = UDR0;
+            rx_buffer[pos] = c;
+            pos++;
+            len++;
+            if (pos > 128) {
+                pos = 0;
+            }
+        } while (c != '\n' && c != '\0');
+
+        rx_buffer[pos] = '\n';
+
+        return len;
+    }
+
+    return 0;
 }
 
 void main(void) {
@@ -154,13 +168,40 @@ void main(void) {
      * Loop.
      */
 
+    unsigned char command[2] = {0};
+
     while (1) {
+        usart_transmit_string("Looped..\n");
+
+        uint8_t len = usart_receive();
+        if (len != 0) {
+            command[0] = rx_buffer[pos - len];
+            command[1] = rx_buffer[pos - len + 1];
+            for (int i = pos - len; i < pos; i++) {
+                usart_transmit_byte(rx_buffer[i]);
+            }
+        }
+
+        switch (command[0])
+        {
+        case 'a':
+            speed = 200;
+            break;
+        case 'b':
+            speed = 500;
+            break;
+        case 'c':
+            speed = 1000;
+            break;
+        
+        default:
+            break;
+        }
+
         if (direction) {
             running_leds_right();
         } else {
             running_leds_left();
         }
-
-        usart_transmit_string("Running");
     }
 }
